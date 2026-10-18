@@ -2,74 +2,43 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using Microsoft.Win32;
 
-namespace UE58Launcher;
+namespace UE5Launcher;
+
+public class EngineInstallation
+{
+    public string ExecutablePath { get; set; } = "";
+    public string RootPath { get; set; } = "";
+    public Version ParsedVersion { get; set; } = new(5, 0, 0);
+    public string DisplayName { get; set; } = "Unreal Engine 5";
+}
 
 public partial class MainWindow : Window
 {
-    private string? _engineExePath;
-    private string _engineVersion = "5";
+    private readonly List<EngineInstallation> _installations;
 
     public MainWindow()
     {
         InitializeComponent();
-        _engineExePath = ResolveEnginePath();
-        UpdateVersionLabels();
+        _installations = DiscoverInstallations();
     }
 
-    private void UpdateVersionLabels()
+    private static EngineInstallation CreateInstallationEntry(string exePath)
     {
-        if (!string.IsNullOrWhiteSpace(_engineExePath) && File.Exists(_engineExePath))
-        {
-            _engineVersion = ReadEngineVersion(_engineExePath);
-            Title = $"UE {_engineVersion} Launcher";
-            LaunchButtonText.Text = $"Launch UE {_engineVersion}";
-            LaunchEditorDirectButton.ToolTip = _engineExePath;
-        }
-        else
-        {
-            Title = "UE5 Launcher";
-            LaunchButtonText.Text = "Launch UE5";
-            LaunchEditorDirectButton.ToolTip = "Click to locate and launch UnrealEditor.exe";
-        }
-    }
+        string fullExe = Path.GetFullPath(exePath);
+        string? win64Dir = Path.GetDirectoryName(fullExe);
+        string? binariesDir = win64Dir != null ? Path.GetDirectoryName(win64Dir) : null;
+        string? engineDir = binariesDir != null ? Path.GetDirectoryName(binariesDir) : null;
+        string rootDir = (engineDir != null ? Path.GetDirectoryName(engineDir) : null) ?? (win64Dir ?? "");
 
-    private static string ReadEngineVersion(string exePath)
-    {
+        Version parsedVer = new(5, 0, 0);
+        string displayName = "Unreal Engine 5";
+
         try
         {
-            string? win64Dir = Path.GetDirectoryName(exePath);
-            string? binariesDir = win64Dir != null ? Path.GetDirectoryName(win64Dir) : null;
-            string? engineDir = binariesDir != null ? Path.GetDirectoryName(binariesDir) : null;
             string? buildVersionPath = engineDir != null ? Path.Combine(engineDir, "Build", "Build.version") : null;
-
-            if (buildVersionPath != null && File.Exists(buildVersionPath))
-            {
-                using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(buildVersionPath));
-                var root = doc.RootElement;
-                int major = root.TryGetProperty("MajorVersion", out var maj) ? maj.GetInt32() : 5;
-                int minor = root.TryGetProperty("MinorVersion", out var min) ? min.GetInt32() : 0;
-                return $"{major}.{minor}";
-            }
-        }
-        catch
-        {
-            // Ignore JSON parse errors and fallback
-        }
-
-        return "5";
-    }
-
-    private static Version ParseSortableVersion(string exePath)
-    {
-        try
-        {
-            string? win64Dir = Path.GetDirectoryName(exePath);
-            string? binariesDir = win64Dir != null ? Path.GetDirectoryName(win64Dir) : null;
-            string? engineDir = binariesDir != null ? Path.GetDirectoryName(binariesDir) : null;
-            string? buildVersionPath = engineDir != null ? Path.Combine(engineDir, "Build", "Build.version") : null;
-
             if (buildVersionPath != null && File.Exists(buildVersionPath))
             {
                 using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(buildVersionPath));
@@ -77,32 +46,27 @@ public partial class MainWindow : Window
                 int major = root.TryGetProperty("MajorVersion", out var maj) ? maj.GetInt32() : 5;
                 int minor = root.TryGetProperty("MinorVersion", out var min) ? min.GetInt32() : 0;
                 int patch = root.TryGetProperty("PatchVersion", out var pat) ? pat.GetInt32() : 0;
-                return new Version(major, minor, patch);
+                parsedVer = new Version(major, minor, patch);
+                displayName = $"Unreal Engine {major}.{minor} ({major}.{minor}.{patch})";
             }
         }
         catch
         {
-            // Ignore
+            // Keep default version display if Build.version cannot be parsed
         }
 
-        return new Version(5, 0, 0);
+        return new EngineInstallation
+        {
+            ExecutablePath = fullExe,
+            RootPath = rootDir,
+            ParsedVersion = parsedVer,
+            DisplayName = displayName
+        };
     }
 
-    private static string? ResolveEnginePath()
+    private static List<EngineInstallation> DiscoverInstallations()
     {
-        // 1. Walk up from the launcher's own directory (if placed inside a UE installation folder)
-        DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            string candidate = Path.Combine(dir.FullName, "Engine", "Binaries", "Win64", "UnrealEditor.exe");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-            dir = dir.Parent;
-        }
-
-        var discovered = new List<string>();
+        var discoveredExePaths = new List<string>();
 
         void TryAddRoot(string? installRoot)
         {
@@ -113,13 +77,21 @@ public partial class MainWindow : Window
                 string exe = Path.Combine(installRoot, "Engine", "Binaries", "Win64", "UnrealEditor.exe");
                 if (File.Exists(exe))
                 {
-                    discovered.Add(exe);
+                    discoveredExePaths.Add(Path.GetFullPath(exe));
                 }
             }
             catch
             {
                 // Ignore invalid paths
             }
+        }
+
+        // 1. Walk up from the launcher's own directory
+        DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            TryAddRoot(dir.FullName);
+            dir = dir.Parent;
         }
 
         // 2. Check Epic Games Launcher's LauncherInstalled.dat
@@ -215,40 +187,22 @@ public partial class MainWindow : Window
             }
         }
 
-        return discovered
+        return discoveredExePaths
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(ParseSortableVersion)
-            .FirstOrDefault();
+            .Select(CreateInstallationEntry)
+            .Where(inst => inst.ParsedVersion.Major == 5)
+            .OrderByDescending(inst => inst.ParsedVersion)
+            .ToList();
     }
 
-    private void LaunchEditorDirectButton_Click(object sender, RoutedEventArgs e)
+    private void LaunchExecutable(string exePath)
     {
-        if (string.IsNullOrWhiteSpace(_engineExePath) || !File.Exists(_engineExePath))
-        {
-            var dialog = new OpenFileDialog
-            {
-                Title = "Locate UnrealEditor.exe",
-                Filter = "UnrealEditor Executable (UnrealEditor.exe)|UnrealEditor.exe|Executables (*.exe)|*.exe",
-                CheckFileExists = true
-            };
-
-            if (dialog.ShowDialog(this) == true)
-            {
-                _engineExePath = dialog.FileName;
-                UpdateVersionLabels();
-            }
-            else
-            {
-                return;
-            }
-        }
-
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = _engineExePath,
-                WorkingDirectory = Path.GetDirectoryName(_engineExePath) ?? "",
+                FileName = exePath,
+                WorkingDirectory = Path.GetDirectoryName(exePath) ?? "",
                 UseShellExecute = true
             });
         }
@@ -259,6 +213,53 @@ public partial class MainWindow : Window
                 "Launch Error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+        }
+    }
+
+    private void LaunchEditorDirectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_installations.Count == 0)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Locate UnrealEditor.exe",
+                Filter = "UnrealEditor Executable (UnrealEditor.exe)|UnrealEditor.exe|Executables (*.exe)|*.exe",
+                CheckFileExists = true
+            };
+
+            if (dialog.ShowDialog(this) == true)
+            {
+                var entry = CreateInstallationEntry(dialog.FileName);
+                _installations.Add(entry);
+                LaunchExecutable(entry.ExecutablePath);
+            }
+            return;
+        }
+
+        if (_installations.Count == 1)
+        {
+            LaunchExecutable(_installations[0].ExecutablePath);
+            return;
+        }
+
+        // Multiple installations found: show version picker
+        VersionsListBox.ItemsSource = _installations;
+        LaunchEditorDirectButton.Visibility = Visibility.Collapsed;
+        Width = 380;
+        Height = 250;
+        VersionPickerPanel.Visibility = Visibility.Visible;
+    }
+
+    private void VersionsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VersionsListBox.SelectedItem is EngineInstallation selected)
+        {
+            LaunchExecutable(selected.ExecutablePath);
+            VersionsListBox.SelectedItem = null;
+            VersionPickerPanel.Visibility = Visibility.Collapsed;
+            Width = 300;
+            Height = 160;
+            LaunchEditorDirectButton.Visibility = Visibility.Visible;
         }
     }
 }
