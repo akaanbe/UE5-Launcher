@@ -1,4 +1,4 @@
-# UE5 Launcher (beacause epic launcher sucks)
+# UE5 Launcher (because epic launcher sucks)
 
 A lightweight, minimal Windows desktop launcher (`.NET 8` / WPF) for **Unreal Engine 5**.
 
