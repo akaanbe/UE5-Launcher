@@ -1,0 +1,8 @@
+bin/
+obj/
+uatbin/
+uatobj/
+.vs/
+*.user
+*.suo
+crash.log

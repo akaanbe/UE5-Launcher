@@ -1,0 +1,32 @@
+<Window x:Class="UE58Launcher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="UE 5.8 Launcher"
+        Icon="pack://application:,,,/app.ico"
+        Width="300" Height="160"
+        ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgDarkBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}">
+
+    <Grid>
+        <Button x:Name="LaunchEditorDirectButton"
+                Style="{StaticResource PrimaryButtonStyle}"
+                Width="210"
+                Height="58"
+                FontSize="16"
+                FontWeight="Bold"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Click="LaunchEditorDirectButton_Click">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Image Source="pack://application:,,,/app.ico"
+                       Width="24" Height="24"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       VerticalAlignment="Center"
+                       Margin="0,0,10,0"/>
+                <TextBlock Text="Launch UE 5.8" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Button>
+    </Grid>
+</Window>
